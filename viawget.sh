@@ -1,5 +1,5 @@
 #!/bin/bash
-# m3u8 hls bash dumper 2.0 | 0x8616 (dw5) & f81337 (do76) & 4ida (aidabyte)
+# m3u8 hls bash dumper 2.0.1 | 0x8616 (dw5) & f81337 (do76) & 4ida (aidabyte)
 
 if [ $# -eq 0 ]
   then
@@ -39,7 +39,7 @@ wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "$init_m3u8" -
 
 # [2] Parse the master playlist to get the variant playlist URLs
 #variant_playlists=$(grep -v '^#' master.m3u8 | tr -d '\r'| sort | uniq)
-variant_playlists=$(grep -v '^#' master.m3u8 | tr -d '\r'| awk '!arr[$0]++')
+variant_playlists=$(grep -v '^#' master.m3u8 | tr -d '\r'| awk '!arr[$0]++'| sort | uniq)
 echo $variant_playlists
 echo "-------------------"
 
@@ -51,7 +51,7 @@ echo "${stream_m3u8}/$variant_playlist">>job_LINKS.txt
     wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${variant_playlist}" -O "${variant_playlist}"
 
     # Parse the variant playlist to get the segment URLs
-    segment_urls=$(grep -v '^#' "${variant_playlist}"| tr -d '\r')
+    segment_urls=$(grep -v '^#' "${variant_playlist}"| tr -d '\r'| awk '!arr[$0]++'| sort | uniq)
 
     # Download each segment
     for segment_url in $segment_urls; do
@@ -65,7 +65,7 @@ done
 echo "AUDIO, IFRAMES, ETC URI="
 
 # [3] Extract the audio and i-frame playlist URLs (URI=)
-audio_tags=$(grep -o ',URI="[^"]*\.m3u8"'  master.m3u8 | tr -d '\r' | grep -Po '(?<=URI=")[^"]*\.m3u8')
+audio_tags=$(grep -o ',URI="[^"]*\.m3u8"'  master.m3u8 | tr -d '\r' | grep -Po '(?<=URI=")[^"]*\.m3u8'| awk '!arr[$0]++'| sort | uniq)
 #iframe_tags=$(grep -o ',URI="[^"]*\.m3u8"'  master.m3u8 | tr -d '\r' | grep -Po '(?<=URI=")[^"]*\.m3u8')
 
 # Loop through each audio tag and echo it
@@ -75,7 +75,7 @@ for audio in $audio_tags; do
   wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${audio}" -O "${audio}"
 
 # Parse the master playlist to get the variant playlist URLs
-variant_playlists=$(grep -v '^#' "$audio" | tr -d '\r')
+variant_playlists=$(grep -v '^#' "$audio" | tr -d '\r'| awk '!arr[$0]++'| sort | uniq)
 
 # Download each variant playlist and its associated segments
       for variant_playlist in $variant_playlists; do
@@ -85,7 +85,7 @@ variant_playlists=$(grep -v '^#' "$audio" | tr -d '\r')
         wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${variant_playlist}" -O "${variant_playlist}"
 
         # Parse the variant playlist to get the segment URLs
-        segment_urls=$(grep -v '^#' "${variant_playlist}"| tr -d '\r')
+        segment_urls=$(grep -v '^#' "${variant_playlist}"| tr -d '\r'| awk '!arr[$0]++'| sort | uniq)
 
         # Download each segment
           for segment_url in $segment_urls; do
