@@ -1,22 +1,29 @@
 #!/bin/bash
-# m3u8 hls bash dumper 2.0.1 | 0x8616 (dw5) & f81337 (do76) & 4ida (aidabyte)
+# m3u8dump.sh | m3u8 hls bash dumper 2.0.1a | 0x8616 (dw5) & f81337 (do76) & 4ida (aidabyte)
 
 if [ $# -eq 0 ]
   then
-    echo "Please provide a CDN host master.m3u8 URL as a command line argument."
+    echo "Please provide a master.m3u8 URL as a command line argument."
+    echo "m3u8dump.sh \"https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8\" \"https://referer.from.website\" \"Mozilla/5.0 (PotatOS 5.1) InternetExploder/0.1\""
+    echo "================="
+    echo "WONT WORK WITH: Where there is URL parameters after m3u8?token=1234, multiple m3u8 using same exact name for different v/a file, one vid.m3u8 for HD and another vid.m3u8 for 144p"
     exit 1
 fi
 
 init_m3u8=$1
 stream_m3u8=$(echo "$1" | sed 's|/master.m3u8$||')
 
-init_refer=$2
-init_usrag=$3
-
 # !! YOUR CONFIG !!
+logfile=0
+#output url for each m3u8 and media file
 # Set the referer and CDN host
-referer="https://stream.nty"
-cuseragent="Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/114.0"
+if [[ -n "$2" && -n "$3" ]]; then
+    referer=$2
+    cuseragent=$3
+else
+    referer="https://stream.nty"
+    cuseragent="Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/114.0"
+fi
 
 # [1] Download the master playlist
 
@@ -40,15 +47,28 @@ wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "$init_m3u8" -
 # [2] Parse the master playlist to get the variant playlist URLs
 #variant_playlists=$(grep -v '^#' master.m3u8 | tr -d '\r'| sort | uniq)
 variant_playlists=$(grep -v '^#' master.m3u8 | tr -d '\r'| awk '!arr[$0]++'| sort | uniq)
-echo $variant_playlists
+#echo $variant_playlists
 echo "-------------------"
 
 # Download each variant playlist and its associated segments
 for variant_playlist in $variant_playlists; do
 echo "$variant_playlist"
+if [ "$logfile" -eq 1 ]; then
 echo "${stream_m3u8}/$variant_playlist">>job_LINKS.txt
-    # Download the variant playlist
-    wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${variant_playlist}" -O "${variant_playlist}"
+fi
+
+if [[ ! $variant_playlist =~ .*\.m3u8$ ]]; then
+    echo "Does not end with 'm3u8'. Program will fail. Please contribute if you're a developer. Exiting the program."
+    exit 1
+fi
+
+# Download the variant playlist
+if [[ $variant_playlist == http://* || $variant_playlist == https://* ]]; then
+  echo "The variant playlist starts with 'http://' or 'https://.'."
+  wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${variant_playlist}" -O "${variant_playlist}"
+else
+  wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${variant_playlist}" -O "${variant_playlist}"
+fi
 
     # Parse the variant playlist to get the segment URLs
     segment_urls=$(grep -v '^#' "${variant_playlist}"| tr -d '\r'| awk '!arr[$0]++'| sort | uniq)
@@ -56,8 +76,18 @@ echo "${stream_m3u8}/$variant_playlist">>job_LINKS.txt
     # Download each segment
     for segment_url in $segment_urls; do
 	echo $segment_url
+	if [ "$logfile" -eq 1 ]; then
 	echo "${stream_m3u8}/$segment_url">>job_LINKS.txt
-        wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${segment_url}" -O "${segment_url}"
+	fi
+
+        # Download the variant segment
+        if [[ $segment_url == http://* || $segment_url == https://* ]]; then
+          echo "The variant playlist starts with 'http://' or 'https://.'."
+          wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${segment_url}" -O "${segment_url}"
+        else
+          wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${segment_url}" -O "${segment_url}"
+        fi
+
     done
 done
 
@@ -71,27 +101,51 @@ audio_tags=$(grep -o ',URI="[^"]*\.m3u8"'  master.m3u8 | tr -d '\r' | grep -Po '
 # Loop through each audio tag and echo it
 for audio in $audio_tags; do
   echo "$audio"
+  if [ "$logfile" -eq 1 ]; then
   echo "${stream_m3u8}/$audio">>job_LINKS.txt
+  fi
   wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${audio}" -O "${audio}"
 
 # Parse the master playlist to get the variant playlist URLs
 variant_playlists=$(grep -v '^#' "$audio" | tr -d '\r'| awk '!arr[$0]++'| sort | uniq)
 
+if [[ ! $variant_playlist =~ .*\.m3u8$ ]]; then
+    echo "Does not end with 'm3u8'. Program will fail. Please contribute if you're a developer. Exiting the program."
+    exit 1
+fi
+
 # Download each variant playlist and its associated segments
       for variant_playlist in $variant_playlists; do
         echo $variant_playlist
+        if [ "$logfile" -eq 1 ]; then
         echo "${stream_m3u8}/$variant_playlist">>job_LINKS.txt
+        fi
+
         # Download the variant playlist
-        wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${variant_playlist}" -O "${variant_playlist}"
+        if [[ $variant_playlist == http://* || $variant_playlist == https://* ]]; then
+          echo "The variant playlist starts with 'http://' or 'https://.'."
+          wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${variant_playlist}" -O "${variant_playlist}"
+        else
+          wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${variant_playlist}" -O "${variant_playlist}"
+        fi
 
         # Parse the variant playlist to get the segment URLs
         segment_urls=$(grep -v '^#' "${variant_playlist}"| tr -d '\r'| awk '!arr[$0]++'| sort | uniq)
 
         # Download each segment
           for segment_url in $segment_urls; do
-            echo $segment_url
-            echo "${stream_m3u8}/$segment_url">>job_LINKS.txt
-            wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${segment_url}" -O "${segment_url}"
+                echo $segment_url
+                if [ "$logfile" -eq 1 ]; then
+                echo "${stream_m3u8}/$segment_url">>job_LINKS.txt
+                fi
+
+                # Download the variant segment
+                if [[ $segment_url == http://* || $segment_url == https://* ]]; then
+                  echo "The variant playlist starts with 'http://' or 'https://.'."
+                  wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${segment_url}" -O "${segment_url}"
+                else
+                  wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${segment_url}" -O "${segment_url}"
+                fi
           done
       done
 done
