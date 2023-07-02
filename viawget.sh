@@ -4,9 +4,10 @@
 if [ $# -eq 0 ]
   then
     echo "Please provide a master.m3u8 URL as a command line argument."
-    echo "m3u8dump.sh \"https://storage.googleapis.com/shaka-demo-assets/angel-one-hls/hls.m3u8\" \"https://referer.from.website\" \"Mozilla/5.0 (PotatOS 5.1) InternetExploder/0.1\""
+    echo "m3u8dump.sh \"https://test-streams.mux.dev/pts_shift/master.m3u8\" \"https://referer.from.website\" \"Mozilla/5.0 (PotatOS 5.1) InternetExploder/0.1\""
     echo "================="
-    echo "WONT WORK WITH: Where there is URL parameters after m3u8?token=1234, multiple m3u8 using same exact name for different v/a file, one vid.m3u8 for HD and another vid.m3u8 for 144p"
+    echo "WONT WORK WITH: Where there is URL parameters after m3u8?token=1234, folder+m3u8 url_2/vid.m3u8, multiple m3u8 using same exact name for different v/a file, one vid.m3u8 for HD and another vid.m3u8 for 144p"
+    echo "Cleanup might be needed for segment files which do have URL parameters (edit code and add --trust-server-names ..?)"
     exit 1
 fi
 
