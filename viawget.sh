@@ -45,6 +45,7 @@ echo "-------------------"
 
 # Download each variant playlist and its associated segments
 for variant_playlist in $variant_playlists; do
+echo "$variant_playlist"
 echo "${stream_m3u8}/$variant_playlist">>job_LINKS.txt
     # Download the variant playlist
     wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${variant_playlist}" -O "${variant_playlist}"
@@ -54,8 +55,8 @@ echo "${stream_m3u8}/$variant_playlist">>job_LINKS.txt
 
     # Download each segment
     for segment_url in $segment_urls; do
-	echo $segment_urls
-	echo "${stream_m3u8}/$segment_urls">>job_LINKS.txt
+	echo $segment_url
+	echo "${stream_m3u8}/$segment_url">>job_LINKS.txt
         wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${segment_url}" -O "${segment_url}"
     done
 done
@@ -78,8 +79,8 @@ variant_playlists=$(grep -v '^#' "$audio" | tr -d '\r')
 
 # Download each variant playlist and its associated segments
       for variant_playlist in $variant_playlists; do
-        echo $variant_playlists
-        echo "${stream_m3u8}/$variant_playlists">>job_LINKS.txt
+        echo $variant_playlist
+        echo "${stream_m3u8}/$variant_playlist">>job_LINKS.txt
         # Download the variant playlist
         wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${variant_playlist}" -O "${variant_playlist}"
 
@@ -88,8 +89,8 @@ variant_playlists=$(grep -v '^#' "$audio" | tr -d '\r')
 
         # Download each segment
           for segment_url in $segment_urls; do
-            echo $segment_urls
-            echo "${stream_m3u8}/$segment_urls">>job_LINKS.txt
+            echo $segment_url
+            echo "${stream_m3u8}/$segment_url">>job_LINKS.txt
             wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "${stream_m3u8}/${segment_url}" -O "${segment_url}"
           done
       done
