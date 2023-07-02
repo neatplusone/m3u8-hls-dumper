@@ -4,9 +4,10 @@
 if [ $# -eq 0 ]
   then
     echo "Please provide a master.m3u8 URL as a command line argument."
-    echo "m3u8dump.sh \"https://test-streams.mux.dev/pts_shift/master.m3u8\" \"https://referer.from.website\" \"Mozilla/5.0 (PotatOS 5.1) InternetExploder/0.1\""
-    echo "================="
+    echo "m3u8dump.sh \"https://test-streams.mux.dev/pts_shift/master.m3u8\" 1 \"https://referer.from.website\" \"Mozilla/5.0 (PotatOS 5.1) InternetExploder/0.1\""
+    echo "================= THIS DUMPER IS NOT 100% PERFECT ================= "
     echo "WONT WORK WITH: Where there is URL parameters after m3u8?token=1234, folder+m3u8 url_2/vid.m3u8, multiple m3u8 using same exact name for different v/a file, one vid.m3u8 for HD and another vid.m3u8 for 144p"
+    echo "Might have problems if .m3u8 name is other than master.m3u8 also"
     echo "Cleanup might be needed for segment files which do have URL parameters (edit code and add --trust-server-names ..?)"
     exit 1
 fi
@@ -15,17 +16,21 @@ init_m3u8=$1
 stream_m3u8=$(echo "$1" | sed 's|/master.m3u8$||')
 
 # !! YOUR CONFIG !!
-logfile=0
 #output url for each m3u8 and media file
 # Set the referer and CDN host
-if [[ -n "$2" && -n "$3" ]]; then
-    referer=$2
-    cuseragent=$3
+if [[ -n "$3" && -n "$4" ]]; then
+    referer=$3
+    cuseragent=$4
 else
     referer="https://stream.nty"
     cuseragent="Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/114.0"
 fi
 
+if [[ -n "$2" ]]; then
+logfile=$2
+else
+logfile=0
+fi
 # [1] Download the master playlist
 
 # Check if the file already exists
@@ -42,7 +47,7 @@ if [ -f "master.m3u8" ]; then
     fi
 fi
 
-echo >job_LINKS.txt #clear history
+rm job_LINKS.txt #clear history
 wget --no-clobber --user-agent="$cuseragent" --referer="$referer" "$init_m3u8" -O master.m3u8
 
 # [2] Parse the master playlist to get the variant playlist URLs
