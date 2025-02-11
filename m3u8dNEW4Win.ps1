@@ -1,249 +1,228 @@
 <#
 .SYNOPSIS
-    A simple HLS M3U8 dumper (PowerShell version)
+    HLS m3u8 downloader – downloads a master m3u8 playlist, variant playlists, audio playlists and their segments.
 
 .DESCRIPTION
-    Downloads a master.m3u8, finds variant playlists, downloads them,
-    and then downloads all segments. Also attempts to handle audio
-    or i-frame playlists found in the master.
+    This script downloads an HLS master playlist and recursively downloads all variant and audio playlists as well as their
+    media segments. It supports optional logging (saving downloaded URLs to a file), and allows you to customize the referer
+    header and user-agent string.
 
-.PARAMETER init_m3u8
-    The master.m3u8 URL.
+.PARAMETER url
+    (Required) URL of the master m3u8 playlist.
 
-.PARAMETER logfile
-    Whether to log URLs into job_LINKS.txt (use "1" for logging, "0" for no logging).
+.PARAMETER l
+    (Optional) Logging flag. Set to 1 to enable logging of URLs in job_LINKS.txt. (Default: 0)
 
-.PARAMETER referer
-    Referer to supply in HTTP headers.
+.PARAMETER ref
+    (Optional) The referer header to use. (Default: "https://stream.nty")
 
-.PARAMETER cuseragent
-    User-Agent to supply in HTTP headers.
+.PARAMETER ua
+    (Optional) The user-agent string to use. (Default: Firefox UA)
 
 .EXAMPLE
-    PS> .\m3u8dump.ps1 "https://test-streams.mux.dev/pts_shift/master.m3u8" 1 "https://referer.from.website" "Mozilla/5.0 (PotatOS 5.1) InternetExploder/0.1"
-
+    .\m3u8dump.ps1 -url "https://test-streams.mux.dev/pts_shift/master.m3u8" -l 1 -ref "https://referer.from.website" -ua "Mozilla/5.0 (PotatOS 5.1) InternetExploder/0.1"
 #>
 
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string] $init_m3u8,
+    [Alias("url")]
+    [string]$MasterUrl,
 
-    [string] $logfile = "0",
+    [Parameter()]
+    [Alias("l")]
+    [int]$LogFlag = 0,
 
-    [string] $referer = "https://vanillo.tv",
+    [Parameter()]
+    [Alias("ref")]
+    [string]$Referer = "https://stream.nty",
 
-    [string] $cuseragent = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/114.0"
+    [Parameter()]
+    [Alias("ua")]
+    [string]$UserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/114.0"
 )
 
-Write-Host "m3u8 hls PowerShell dumper | Based on original Bash script v2.0.1a"
-Write-Host "Usage example:"
-Write-Host "  .\\m3u8dump.ps1 `"https://test-streams.mux.dev/pts_shift/master.m3u8`" 1 `"https://referer.from.website`" `"CustomUserAgentHere`""
-Write-Host "=================================================================="
-Write-Host "Note: This is not a perfect dumper; see original disclaimers."
-
-# If no init_m3u8 is provided (shouldn't happen if we make it Mandatory, but just in case):
-if (-not $init_m3u8) {
-    Write-Host "`nPlease provide a master.m3u8 URL as a command line argument."
-    Write-Host "Example: .\\m3u8dump.ps1 `"https://test-streams.mux.dev/pts_shift/master.m3u8`" 1"
-    Write-Host "==== THIS DUMPER IS NOT 100% PERFECT ===="
-    exit 1
-}
-
-# Remove "/master.m3u8" from the end of the URL to get the base (stream_m3u8).
-# e.g. https://example.com/folder/master.m3u8 -> https://example.com/folder
-$stream_m3u8 = $init_m3u8 -replace "/master\.m3u8$",""
-
-# Check if master.m3u8 exists locally and possibly remove it
-if (Test-Path -Path "master.m3u8") {
-    Write-Host "`nThe file 'master.m3u8' already exists."
-    Write-Host "It's possible other files linked to that m3u8 are downloaded too."
-    $answer = Read-Host "Do you want to delete master.m3u8? (yes/no)"
-    if ($answer -match "^(y|yes)$") {
-        Write-Host "Deleting 'master.m3u8'..."
-        Remove-Item "master.m3u8" -Force
-    }
-    else {
-        Write-Host "Skipping file deletion."
-    }
-}
-
-# Clear old job_LINKS.txt if it exists
-if (Test-Path -Path "job_LINKS.txt") {
-    Remove-Item "job_LINKS.txt" -Force
-}
-
-# Helper function to download a URL to a specified OutFile using custom headers
-function Download-Url {
+#region Helper Function: Download-File
+function Download-File {
     param(
-        [string]$url,
-        [string]$outfile
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+        [Parameter(Mandatory = $true)]
+        [string]$OutputFile
     )
-    # -Headers allows us to specify Referer and User-Agent
-    # --no-clobber approach: We'll skip download if the outfile already exists (by default).
-    if (-not (Test-Path $outfile)) {
-        try {
-            Invoke-WebRequest -Uri $url `
-                              -Headers @{ "Referer" = $referer; "User-Agent" = $cuseragent } `
-                              -OutFile $outfile -UseBasicParsing -ErrorAction Stop
-        }
-        catch {
-            Write-Warning "Failed to download $url: $($_.Exception.Message)"
-        }
-    }
-    else {
-        Write-Host "File '$outfile' already exists; skipping."
-    }
-}
 
-
-#
-# 1) Download the master playlist
-#
-Write-Host "`nDownloading master.m3u8..."
-Download-Url -url $init_m3u8 -outfile "master.m3u8"
-
-#
-# 2) Parse the master playlist to get the variant playlist URLs
-#    ignoring lines that start with '#' or empty lines
-#
-Write-Host "`nParsing 'master.m3u8' to find variant playlists..."
-$variantPlaylists = Get-Content -Path "master.m3u8" `
-    | Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne "" } `
-    | Select-Object -Unique
-    # If you want them alphabetically sorted, you can append: | Sort-Object
-
-Write-Host "Found variant playlists:"
-$variantPlaylists | ForEach-Object { Write-Host "  $_" }
-Write-Host "-------------------"
-
-# Download each variant playlist and then its associated segments
-foreach ($variant in $variantPlaylists) {
-
-    # If logfile=1, append to job_LINKS.txt
-    if ($logfile -eq "1") {
-        "$($stream_m3u8)/$variant" | Out-File -FilePath "job_LINKS.txt" -Append
+    # Mimic wget --no-clobber: skip download if the file already exists.
+    if (Test-Path $OutputFile) {
+        Write-Host "File '$OutputFile' already exists, skipping download."
+        return
     }
 
-    # Figure out where to download from. If it starts with http(s)://, use it directly.
-    # Otherwise, prepend $stream_m3u8.
-    if ($variant -match '^https?://') {
-        $variantUrl = $variant
-        # The output file name can be just the last portion of the URL, e.g. everything after the last slash
-        $outfileName = [System.IO.Path]::GetFileName($variant)
+    Write-Host "Downloading '$Url' to '$OutputFile'..."
+    try {
+        Invoke-WebRequest -Uri $Url `
+                          -OutFile $OutputFile `
+                          -UserAgent $UserAgent `
+                          -Headers @{ "Referer" = $Referer } `
+                          -UseBasicParsing
     }
-    else {
-        $variantUrl = "$stream_m3u8/$variant"
-        $outfileName = $variant
-    }
-
-    Write-Host "`nDownloading variant playlist: $variantUrl -> $outfileName"
-    Download-Url -url $variantUrl -outfile $outfileName
-
-    # Now parse that variant playlist for segments
-    if (Test-Path -Path $outfileName) {
-        $segmentUrls = Get-Content -Path $outfileName `
-            | Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne "" } `
-            | Select-Object -Unique
-            # | Sort-Object if you want them sorted
-
-        foreach ($segment in $segmentUrls) {
-            Write-Host "  Segment: $segment"
-
-            if ($logfile -eq "1") {
-                "$($stream_m3u8)/$segment" | Out-File -FilePath "job_LINKS.txt" -Append
-            }
-
-            if ($segment -match '^https?://') {
-                $segmentUrl = $segment
-                $segmentName = [System.IO.Path]::GetFileName($segment)
-            }
-            else {
-                $segmentUrl = "$stream_m3u8/$segment"
-                $segmentName = $segment
-            }
-
-            Download-Url -url $segmentUrl -outfile $segmentName
-        }
+    catch {
+        Write-Error "Error downloading '$Url': $_"
     }
 }
+#endregion
 
-
-#
-# 3) Extract audio/i-frame playlist URLs (any lines containing URI="something.m3u8")
-#
-Write-Host "`nAUDIO, IFRAMES, ETC URI="
-# We'll use regex to capture the content inside URI="...m3u8"
-# e.g. URI="audio-variant.m3u8"
-# We only want the inside portion: audio-variant.m3u8
-#
-$audioTags = Select-String -Path "master.m3u8" -Pattern 'URI="([^"]*\.m3u8)"' -AllMatches `
-    | ForEach-Object { $_.Matches } `
-    | ForEach-Object { $_.Groups[1].Value } `
-    | Select-Object -Unique
-
-foreach ($audio in $audioTags) {
-    Write-Host "  $audio"
-
-    if ($logfile -eq "1") {
-        "$($stream_m3u8)/$audio" | Out-File -FilePath "job_LINKS.txt" -Append
+#region Function: Download-M3u8
+function Download-M3u8 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Playlist,
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUrl
+    )
+    
+    # Determine if the playlist URL is absolute or relative.
+    if ($Playlist -match "^https?://") {
+        $PlaylistFile = [System.IO.Path]::GetFileName($Playlist)
+        Download-File -Url $Playlist -OutputFile $PlaylistFile
+    }
+    else {
+        $PlaylistFile = $Playlist
+        Download-File -Url "$BaseUrl/$Playlist" -OutputFile $PlaylistFile
     }
 
-    # Download the audio or i-frame .m3u8
-    $audioUrl = "$stream_m3u8/$audio"
-    Download-Url -url $audioUrl -outfile $audio
-
-    # Once downloaded, parse for segments
-    if (Test-Path -Path $audio) {
-        $subPlaylists = Get-Content -Path $audio `
-            | Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne "" } `
-            | Select-Object -Unique
-
-        foreach ($variant2 in $subPlaylists) {
-            Write-Host "    Audio/i-frame sub-playlist: $variant2"
-
-            if ($logfile -eq "1") {
-                "$($stream_m3u8)/$variant2" | Out-File -FilePath "job_LINKS.txt" -Append
-            }
-
-            if ($variant2 -match '^https?://') {
-                $variantUrl2 = $variant2
-                $outfileName2 = [System.IO.Path]::GetFileName($variant2)
-            }
-            else {
-                $variantUrl2 = "$stream_m3u8/$variant2"
-                $outfileName2 = $variant2
-            }
-
-            Download-Url -url $variantUrl2 -outfile $outfileName2
-
-            # Segments for this sub-playlist
-            if (Test-Path -Path $outfileName2) {
-                $segmentUrls2 = Get-Content -Path $outfileName2 `
-                    | Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne "" } `
-                    | Select-Object -Unique
-
-                foreach ($segment2 in $segmentUrls2) {
-                    Write-Host "      Segment: $segment2"
-
-                    if ($logfile -eq "1") {
-                        "$($stream_m3u8)/$segment2" | Out-File -FilePath "job_LINKS.txt" -Append
-                    }
-
-                    if ($segment2 -match '^https?://') {
-                        $segmentUrl2 = $segment2
-                        $segmentFile2 = [System.IO.Path]::GetFileName($segment2)
-                    }
-                    else {
-                        $segmentUrl2 = "$stream_m3u8/$segment2"
-                        $segmentFile2 = $segment2
-                    }
-
-                    Download-Url -url $segmentUrl2 -outfile $segmentFile2
+    # Process and download each segment listed in the playlist.
+    if (Test-Path $PlaylistFile) {
+        $Segments = Get-Content $PlaylistFile |
+                    Where-Object { $_ -notmatch '^#' } |
+                    ForEach-Object { $_.Trim() } |
+                    Select-Object -Unique |
+                    Sort-Object
+        foreach ($Segment in $Segments) {
+            # Log the segment URL if logging is enabled.
+            if ($LogFlag -eq 1) {
+                if ($Segment -match "^https?://") {
+                    Add-Content -Path "job_LINKS.txt" -Value $Segment
+                }
+                else {
+                    Add-Content -Path "job_LINKS.txt" -Value "$BaseUrl/$Segment"
                 }
             }
+
+            # Download the segment.
+            if ($Segment -match "^https?://") {
+                $OutputSegment = [System.IO.Path]::GetFileName($Segment)
+                Download-File -Url $Segment -OutputFile $OutputSegment
+            }
+            else {
+                Download-File -Url "$BaseUrl/$Segment" -OutputFile $Segment
+            }
         }
     }
+    else {
+        Write-Error "Playlist file '$PlaylistFile' not found."
+    }
 }
+#endregion
 
-Write-Host "`n==== THE END. ===="
+#region Main Function: M3u8Dump
+function M3u8Dump {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$MasterM3u8
+    )
 
+    # Create an output folder named with the current date/time.
+    $outputDir = Get-Date -Format "yyyyMMdd_HHmmss"
+    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    Set-Location $outputDir
+
+    # Derive the base URL by removing "/master.m3u8" from the master URL.
+    $StreamM3u8 = $MasterM3u8 -replace "/master\.m3u8$", ""
+
+    # If master.m3u8 already exists, ask whether to delete it.
+    if (Test-Path "master.m3u8") {
+        Write-Host "The file 'master.m3u8' already exists."
+        $answer = Read-Host "Do you want to delete it? (yes/no)"
+        if ($answer -match "^(y|yes)$") {
+            Write-Host "Deleting 'master.m3u8'..."
+            Remove-Item "master.m3u8" -Force
+        }
+        else {
+            Write-Host "Skipping deletion."
+        }
+    }
+
+    # Remove job_LINKS.txt if it exists.
+    if (Test-Path "job_LINKS.txt") {
+        Remove-Item "job_LINKS.txt" -Force
+    }
+
+    # Download the master playlist.
+    Download-File -Url $MasterM3u8 -OutputFile "master.m3u8"
+
+    # Process variant playlists found in the master playlist.
+    Write-Host "-------------------"
+    Write-Host "Processing variant playlists..."
+    $Variants = Get-Content "master.m3u8" |
+                Where-Object { $_ -notmatch '^#' } |
+                ForEach-Object { $_.Trim() } |
+                Select-Object -Unique |
+                Sort-Object
+    foreach ($Variant in $Variants) {
+        if ($Variant -notmatch "\.(m3u8|mp4)$") {
+            Write-Warning "'$Variant' does not end with .m3u8 or .mp4 – skipping."
+            continue
+        }
+        if ($LogFlag -eq 1) {
+            if ($Variant -match "^https?://") {
+                Add-Content -Path "job_LINKS.txt" -Value $Variant
+            }
+            else {
+                Add-Content -Path "job_LINKS.txt" -Value "$StreamM3u8/$Variant"
+            }
+        }
+        Download-M3u8 -Playlist $Variant -BaseUrl $StreamM3u8
+    }
+
+    # Process embedded audio (or i-frame) playlists from the master playlist.
+    $MasterContent = Get-Content "master.m3u8" -Raw
+    $AudioMatches = [regex]::Matches($MasterContent, 'URI="([^"]*\.m3u8)"')
+    $AudioTags = $AudioMatches | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
+
+    if ($AudioTags.Count -gt 0) {
+        Write-Host "-------------------"
+        Write-Host "Processing audio playlists..."
+        foreach ($Audio in $AudioTags) {
+            if ($LogFlag -eq 1) {
+                Add-Content -Path "job_LINKS.txt" -Value "$StreamM3u8/$Audio"
+            }
+            Download-File -Url "$StreamM3u8/$Audio" -OutputFile $Audio
+            if (Test-Path $Audio) {
+                $AudioVariants = Get-Content $Audio |
+                                 Where-Object { $_ -notmatch '^#' } |
+                                 ForEach-Object { $_.Trim() } |
+                                 Select-Object -Unique |
+                                 Sort-Object
+                foreach ($Variant in $AudioVariants) {
+                    if ($Variant -notmatch "\.(m3u8|mp4)$") {
+                        Write-Warning "'$Variant' (from audio playlist) does not end with .m3u8 or .mp4 – skipping."
+                        continue
+                    }
+                    if ($LogFlag -eq 1) {
+                        Add-Content -Path "job_LINKS.txt" -Value "$StreamM3u8/$Variant"
+                    }
+                    Download-M3u8 -Playlist $Variant -BaseUrl $StreamM3u8
+                }
+            }
+            else {
+                Write-Error "Audio playlist file '$Audio' not found."
+            }
+        }
+    }
+
+    Write-Host "==== THE END. Files saved in directory: $outputDir ===="
+}
+#endregion
+
+# Execute the main function with the provided master URL.
+M3u8Dump -MasterM3u8 $MasterUrl
